@@ -1,5 +1,6 @@
 # WireTrip
 (Anyone can improve this as it is fully open source)
+
 Lightweight deception-based intrusion detection system for home labs and personal machines.
 
 WireTrip generates realistic decoy files (“honeyfiles”) in common user directories and monitors them for any modification. If a file is accessed or changed, the event is logged locally for analysis.
