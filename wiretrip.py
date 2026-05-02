@@ -1,235 +1,136 @@
-import os
+from pathlib import Path
+import random
 import time
 import hashlib
-import json
-import psutil
 from datetime import datetime
 
-# ==========================
+# =========================
 # CONFIG
-# ==========================
+# =========================
 
-CONFIG = {
-    "watch_dir": "wiretrip/decoys",
-    "log_dir": "wiretrip/logs",
-    "log_file": "wiretrip/logs/access.log",
-    "scan_interval": 2,
-    "decoy_files": [
-        "passwords.txt",
-        "aws_keys.txt",
-        "server_backup.sql",
-        "admin_notes.txt",
-        "router_config_backup.cfg"
-    ]
-}
+HOME = Path.home()
+
+TARGET_DIRS = [
+    HOME / "Documents",
+    HOME / "Downloads",
+    HOME / "Desktop"
+]
+
+BAIT_FILES = [
+    "backup_passwords.txt",
+    "server_keys.txt",
+    "old_config.txt",
+    "notes_admin.txt",
+    "wallet_backup.txt"
+]
+
+LOG_FILE = HOME / ".wiretrip_log.txt"
+SCAN_INTERVAL = 2
 
 file_hashes = {}
 
-# ==========================
-# SETUP
-# ==========================
+# =========================
+# SETUP BAIT FILES
+# =========================
 
-def setup_environment():
-    os.makedirs(CONFIG["watch_dir"], exist_ok=True)
-    os.makedirs(CONFIG["log_dir"], exist_ok=True)
+def deploy_decoys():
+    for _ in range(len(BAIT_FILES)):
 
-    for name in CONFIG["decoy_files"]:
-        path = os.path.join(CONFIG["watch_dir"], name)
+        folder = random.choice(TARGET_DIRS)
+        filename = random.choice(BAIT_FILES)
 
-        if not os.path.exists(path):
-            with open(path, "w") as f:
-                f.write(generate_fake_content(name))
+        path = folder / filename
 
+        if not path.exists():
+            path.write_text("SYSTEM BACKUP FILE - DO NOT MODIFY\n")
+            print(f"[WireTrip] deployed -> {path}")
 
-# ==========================
-# FAKE DATA GENERATOR
-# ==========================
-
-def generate_fake_content(filename):
-
-    fake_data = {
-        "passwords.txt":
-        """
-root:Sup3rSecret!
-admin:LetMeIn123
-backup:Password123
-db_admin:qwertyuiop
-""",
-
-        "aws_keys.txt":
-        """
-AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
-AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-""",
-
-        "server_backup.sql":
-        """
-DATABASE: production
-
-users:
-admin
-backup
-service_account
-""",
-
-        "admin_notes.txt":
-        """
-TODO:
-- rotate server credentials
-- update firewall rules
-- remove old admin accounts
-""",
-
-        "router_config_backup.cfg":
-        """
-router admin password: admin123
-ssh enabled
-vpn key: 89dhs92jds92jd
-"""
-    }
-
-    return fake_data.get(filename, "Confidential data\n")
-
-
-# ==========================
+# =========================
 # HASHING
-# ==========================
+# =========================
 
 def hash_file(path):
-
-    h = hashlib.sha256()
-
     try:
-        with open(path, "rb") as f:
-            h.update(f.read())
+        h = hashlib.sha256()
+        h.update(path.read_bytes())
         return h.hexdigest()
     except:
         return None
 
-
-# ==========================
-# PROCESS DETECTION
-# ==========================
-
-def find_process_using_file(filepath):
-
-    users = []
-
-    for proc in psutil.process_iter(['pid','name','open_files']):
-
-        try:
-            files = proc.info['open_files']
-            if files:
-                for f in files:
-                    if filepath in f.path:
-                        users.append(f"{proc.info['name']} (PID {proc.info['pid']})")
-        except:
-            pass
-
-    return users
-
-
-# ==========================
+# =========================
 # LOGGING
-# ==========================
+# =========================
 
-def log_event(file):
+def log_event(path):
+    entry = f"[{datetime.now()}] ACCESS DETECTED -> {path}\n"
 
-    processes = find_process_using_file(file)
+    with open(LOG_FILE, "a") as f:
+        f.write(entry)
 
-    with open(CONFIG["log_file"], "a") as log:
+    print(entry.strip())
 
-        log.write("\n=========================\n")
-        log.write(f"TIME: {datetime.now()}\n")
-        log.write(f"FILE TRIGGERED: {file}\n")
+# =========================
+# INITIAL STATE
+# =========================
 
-        if processes:
-            log.write("PROCESS USING FILE:\n")
-            for p in processes:
-                log.write(f"  {p}\n")
+def init_state():
+    for folder in TARGET_DIRS:
+        for file in folder.glob("*"):
+            if file.is_file():
+                file_hashes[file] = hash_file(file)
 
-        else:
-            log.write("PROCESS: Unknown\n")
+# =========================
+# MONITOR LOOP
+# =========================
 
-
-# ==========================
-# INITIAL HASH BASELINE
-# ==========================
-
-def initialize_hashes():
-
-    for root, dirs, files in os.walk(CONFIG["watch_dir"]):
-
-        for name in files:
-
-            path = os.path.join(root, name)
-            file_hashes[path] = hash_file(path)
-
-
-# ==========================
-# SCANNER
-# ==========================
-
-def scan_files():
-
-    for root, dirs, files in os.walk(CONFIG["watch_dir"]):
-
-        for name in files:
-
-            path = os.path.join(root, name)
-
-            current_hash = hash_file(path)
-
-            if path not in file_hashes:
-                file_hashes[path] = current_hash
-                continue
-
-            if file_hashes[path] != current_hash:
-
-                log_event(path)
-
-                file_hashes[path] = current_hash
-
-
-# ==========================
-# BANNER
-# ==========================
-
-def banner():
-
-    print("""
-██╗    ██╗██╗██████╗ ███████╗████████╗██████╗ ██╗██████╗ 
-██║    ██║██║██╔══██╗██╔════╝╚══██╔══╝██╔══██╗██║██╔══██╗
-██║ █╗ ██║██║██████╔╝█████╗     ██║   ██████╔╝██║██████╔╝
-██║███╗██║██║██╔══██╗██╔══╝     ██║   ██╔══██╗██║██╔═══╝ 
-╚███╔███╔╝██║██║  ██║███████╗   ██║   ██║  ██║██║██║     
- ╚══╝╚══╝ ╚═╝╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝     
-
-WireTrip Defensive Honeypot
-""")
-
-
-# ==========================
-# MAIN LOOP
-# ==========================
-
-def main():
-
-    banner()
-
-    print("[*] Setting up environment")
-    setup_environment()
-
-    print("[*] Initializing baseline hashes")
-    initialize_hashes()
-
-    print("[*] Monitoring decoy files...\n")
-
+def monitor():
     while True:
 
-        scan_files()
-        time.sleep(CONFIG["scan_interval"])
+        for folder in TARGET_DIRS:
+            for file in folder.glob("*"):
 
+                if file.is_file():
+
+                    current = hash_file(file)
+
+                    if file not in file_hashes:
+                        file_hashes[file] = current
+                        continue
+
+                    if file_hashes[file] != current:
+                        log_event(file)
+                        file_hashes[file] = current
+
+        time.sleep(SCAN_INTERVAL)
+
+# =========================
+# BANNER
+# =========================
+
+def banner():
+    print("""
+========================
+        WIRETRIP
+  Deception IDS (Lab Tool)
+========================
+""")
+
+# =========================
+# MAIN
+# =========================
+
+def main():
+    banner()
+
+    print("[*] Deploying decoy files...")
+    deploy_decoys()
+
+    print("[*] Initializing state...")
+    init_state()
+
+    print("[*] Monitoring system...\n")
+
+    monitor()
 
 if __name__ == "__main__":
     main()
